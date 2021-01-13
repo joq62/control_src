@@ -23,14 +23,14 @@
 %% Returns: non
 %% -------------------------------------------------------------------
 read_status(all)->
-    AllServers=db_server:read_all(),
+    AllServers=rpc:call(sd:dbase_node(),db_server,read_all,[],2000),
     AllServersStatus=[{Status,HostId}||{HostId,_User,_PassWd,_IpAddr,_Port,Status}<-AllServers],
     Running=[HostId||{running,HostId}<-AllServersStatus],
     NotAvailable=[HostId||{not_available,HostId}<-AllServersStatus],
     [{running,Running},{not_available,NotAvailable}];
 
 read_status(XHostId) ->
-    AllServers=db_server:read_all(),
+    AllServers=rpc:call(sd:dbase_node(),db_server,read_all,[],2000),
     [ServersStatus]=[Status||{HostId,_User,_PassWd,_IpAddr,_Port,Status}<-AllServers,
 		     XHostId==HostId],
     ServersStatus.
@@ -42,8 +42,8 @@ read_status(XHostId) ->
 %% Returns: non
 %% -------------------------------------------------------------------
 update_status([{running,Running},{not_available,NotAvailable}])->
-    [db_server:update(HostId,running)||HostId<-Running],
-    [db_server:update(HostId,not_available)||HostId<-NotAvailable],    
+    [rpc:call(sd:dbase_node(),db_server,update,[HostId,running],2000)||HostId<-Running],
+    [rpc:call(sd:dbase_node(),db_server,update,[HostId,not_available],2000)||HostId<-NotAvailable],    
     ok.
 
 %% -------------------------------------------------------------------
@@ -67,10 +67,10 @@ status()->
     F1=fun get_hostname/2,
     F2=fun check_host_status/3,
     
-    AllServers=db_server:read_all(),
+    AllServers=rpc:call(sd:dbase_node(),db_server,read_all,[],2000),
  %   io:format("AllServers = ~p~n",[{?MODULE,?LINE,AllServers}]),
     Status=mapreduce:start(F1,F2,[],AllServers),
-  %  io:format("Status = ~p~n",[{?MODULE,?LINE,Status}]),
+    io:format("Status = ~p~n",[{?MODULE,?LINE,Status}]),
     Status.
         
 

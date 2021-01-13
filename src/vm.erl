@@ -63,7 +63,7 @@ check_stopped(N,Vm,SleepTime,_Result)->
 %% Returns: non
 %% --------------------------------------------------------------------
 create(HostId,VmId,VmDir,Cookie)->
-    Result=case rpc:call(node(),db_server,read,[HostId]) of
+    Result=case rpc:call(sd:dbase_node(),db_server,read,[HostId]) of
 	       []->
 		   {error,[eexists, HostId,?MODULE,?LINE]};
 	       [{HostId,User,PassWd,Ip,Port,running}]->
@@ -77,7 +77,7 @@ create(HostId,VmId,VmDir,Cookie,PreLoadedServices)->
 	       {error,Err}->
 		   {error,Err};
 	       {ok,CreatedVm}->
-		   ServiceInfo=lists:append([rpc:call(node(),db_service_def,read,[ZServiceId,ZServiceVsn])||
+		   ServiceInfo=lists:append([rpc:call(sd:dbase_node(),db_service_def,read,[ZServiceId,ZServiceVsn])||
 						{ZServiceId,ZServiceVsn}<-PreLoadedServices]),
 		   io:format("ServiceInfo = ~p~n",[ServiceInfo]),
 		   StartResult=[{service:create(CreatedVm,VmDir,ServiceId,ServiceVsn,StartMFA,GitPath),ServiceId,ServiceVsn}||

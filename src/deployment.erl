@@ -51,19 +51,41 @@
 %% Returns: ok |{error,Err}
 %% --------------------------------------------------------------------
 create_application(AppSpec)->
-    Result=case rpc:call(sd:get("dbase"),db_app_spec,read,[AppSpec]) of
+    Result=case rpc:call(sd:dbase_node(),db_app_spec,read,[AppSpec]) of
 	       [{AppId,AppVsn,Type,Host,VmId,VmDir,Cookie,Services}]->
 		   create_application(AppId,AppVsn,Type,Host,VmId,VmDir,Cookie,Services);
 	        Reason->
 		   misc_log:msg(ticket,
-				[{error,Reason}],
+				[error,Reason,AppSpec],
 				 node(),?MODULE,?LINE),
-		   {error,Reason}
+		   {error,Reason,AppSpec,?MODULE,?LINE}
 	   end,
     Result.
 
-create_application(AppId,AppVsn,Type,HostId,VmId,VmDir,Cookie,Services)->
-    Result= case vm:create(HostId,VmId,VmDir,Cookie) of
+create_application(AppId,AppVsn,_Type,HostId,VmId,VmDir,Cookie,_Services)->
+      VmIdResult=case VmId of
+		   any->
+		       [Name1,"app_spec"]=string:split(AppId,["."]),
+		       Name1;
+		     VmId->
+		       VmId
+	       end,
+    VmDirResult=case VmDir of
+		    any->
+			[Name2,"app_spec"]=string:split(AppId,["."]),
+			Name2;
+		    VmDir->
+			VmDir
+		end,
+    HostIdResult=case HostId of
+		     any->
+			 random_host();
+		     HostId->
+			 HostId
+		 end,
+    
+
+    Result= case vm:create(HostIdResult,VmIdResult,VmDirResult,Cookie) of
 		{error,Reason}->
 		    misc_log:msg(ticket,
 				 [{error,Reason}],
@@ -71,33 +93,33 @@ create_application(AppId,AppVsn,Type,HostId,VmId,VmDir,Cookie,Services)->
 		    {error,Reason};
 		{ok,Vm}->
 		    misc_log:msg(log,
-				 ["Vm with Id "++VmId++" succesful created ", Vm],
+				 ["Vm with Id "++VmIdResult++" succesful created ", Vm],
 				 node(),?MODULE,?LINE),
 		    % Set Application env variables
 		   
-		    EnvVars=rpc:call(sd:get("dbase"),db_app_spec,app_env_vars,[AppId]),
-		    GitPath=rpc:call(sd:get("dbase"),db_app_spec,git_path,[AppId]),
-		    StartCmd=rpc:call(sd:get("dbase"),db_app_spec,start_cmd,[AppId]),
-		    ServiceId=rpc:call(sd:get("dbase"),db_app_spec,service_id,[AppId]),
-		    ServiceVsn=rpc:call(sd:get("dbase"),db_app_spec,service_vsn,[AppId]),
-		    case service:create(ServiceId,ServiceVsn,Vm,VmDir,StartCmd,EnvVars,GitPath) of
+		    EnvVars=rpc:call(sd:dbase_node(),db_app_spec,app_env_vars,[AppId]),
+		    GitPath=rpc:call(sd:dbase_node(),db_app_spec,git_path,[AppId]),
+		    StartCmd=rpc:call(sd:dbase_node(),db_app_spec,start_cmd,[AppId]),
+		    ServiceId=rpc:call(sd:dbase_node(),db_app_spec,service_id,[AppId]),
+		    ServiceVsn=rpc:call(sd:dbase_node(),db_app_spec,service_vsn,[AppId]),
+		    case service:create(ServiceId,ServiceVsn,Vm,VmDirResult,StartCmd,EnvVars,GitPath) of
 			{ok,ServiceId,ServiceVsn}->
 			    misc_log:msg(log,
 					 ["Service started ", ServiceId,ServiceVsn, " at node ", Vm],
 					 node(),?MODULE,?LINE),
 		
-			    SdResult=rpc:call(sd:get("dbase"),db_sd,create,[ServiceId,ServiceVsn,AppId,AppVsn,HostId,VmId,VmDir,Vm]),
+			    SdResult=rpc:call(sd:dbase_node(),db_sd,create,[ServiceId,ServiceVsn,AppId,AppVsn,HostIdResult,
+									    VmIdResult,VmDirResult,Vm]),
 			    misc_log:msg(log,
-					 [create,application, {ok,AppId,HostId,VmId,Vm,SdResult}],
+					 [create,application, {ok,AppId,HostIdResult,VmIdResult,Vm,SdResult}],
 					 node(),?MODULE,?LINE),
-			    {ok,AppId,HostId,VmId,Vm,SdResult};
+			    {ok,AppId,HostIdResult,VmIdResult,Vm,SdResult};
 
 		       Reason->
-			   rpc:multicall(misc_oam:masters(),
-					 sys_log,ticket,
-					 [[{error,Reason}],
-					  node(),?MODULE,?LINE]),
-			   {error,Reason}
+			    misc_log:msg(ticket,
+					 [{error,Reason}],
+					 node(),?MODULE,?LINE),
+			    {error,Reason}
 		   end;
 	       Reason->
 		    misc_log:msg(ticket,
@@ -152,12 +174,11 @@ directive_info(AppSpec,Directive)->
 %% Returns: ok |{error,Err}
 %% --------------------------------------------------------------------
 delete_application(AppSpec)->
-    Result=case rpc:call(node(),db_sd,app_spec,[AppSpec]) of
+    Result=case rpc:call(sd:dbase_node(),db_sd,app_spec,[AppSpec]) of
 	       []->
-		   rpc:multicall(misc_oam:masters(),
-				 sys_log,ticket,
-				 [[{error,[eexists,AppSpec]}],
-				  node(),?MODULE,?LINE]),
+		   misc_log:msg(ticket,
+				[{error,[eexists,AppSpec]}],
+				node(),?MODULE,?LINE),
 		   {error,[eexists,AppSpec]};
 	       ServicesList->
 		   [{_ServiceId,_ServiceVsn,_AppSpec,_AppVsn,_HostId,_VmId,VmDir,Vm}|_]=ServicesList,
@@ -167,7 +188,7 @@ delete_application(AppSpec)->
 		% Stop the vm
 		   rpc:call(Vm,init,stop,[],2000),
 	       % Remove from sd discovery	       
-	       [rpc:call(node(),db_sd,delete,[ServiceId,ServiceVsn,XVm])||
+	       [rpc:call(sd:dbase_node(),db_sd,delete,[ServiceId,ServiceVsn,XVm])||
 		   {ServiceId,ServiceVsn,_,_,_,_,XVm}<-ServicesList],
 	       ok
        end,
