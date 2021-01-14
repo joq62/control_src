@@ -11,7 +11,7 @@
 %% --------------------------------------------------------------------
 %% --------------------------------------------------------------------
 %% Definition
--define(Cookie,"abc").
+
 %% --------------------------------------------------------------------
 
 
@@ -22,8 +22,6 @@
 	 load_service_specs/3,
 	 read_service_specs/0,
 	 read_service_spec/1,
-
-	 get_wanted_service_info/1,
 
 	 missing_apps/0,
 	 depricated_apps/0,
@@ -201,37 +199,35 @@ delete_application(AppSpec)->
 %% --------------------------------------------------------------------
 missing_apps()->
     %% 1. Check for missing services and remove missing services 
-    AllServices=db_sd:read_all(),
+    AllServices=rpc:call(sd:dbase_node(),db_sd,read_all,[],2000),
 %    misc_oam:print("AllServices ~p~n",[AllServices]),
     PingTest=[{rpc:call(Vm,list_to_atom(ServiceId),ping,[],2000),ServiceId,ServiceVsn,Vm}||
 	     {ServiceId,ServiceVsn,_AppId,_AppVsn,_HostId,_VmId,_VmDir,Vm}<-AllServices],
  %   misc_oam:print("PingTest ~p~n",[PingTest]),
 
-    Deleted=[{db_sd:delete(XServiceId,XServiceVsn,XVm),XServiceId,XServiceVsn,XVm}||{{badrpc,_},XServiceId,XServiceVsn,XVm}<-PingTest],
+    Deleted=[{rpc:call(sd:dbase_node(),db_sd,delete,[XServiceId,XServiceVsn,XVm],2000),XServiceId,XServiceVsn,XVm}||{{badrpc,_},XServiceId,XServiceVsn,XVm}<-PingTest],
     %% DEbug
     case Deleted of
 	[]->
 	    ok;
-	_->    
-	    rpc:multicall(misc_oam:masters(),
-			  sys_log,ticket,
-			  ["Deleted ",Deleted],
-			  node(),?MODULE,?LINE)
+	_->   
+	    misc_log:msg(log,
+			 ["Deleted ",Deleted],
+			 node(),?MODULE,?LINE) 
     end,
 						%1.check if appspecs is presente in some of the services Simple algorithm 
-    ActiveServicesApps=rpc:call(node(),db_sd,active_apps,[]),
+    ActiveServicesApps=rpc:call(sd:dbase_node(),db_sd,active_apps,[],2000),
   %  misc_oam:print("ActiveServicesApps ~p~n",[ActiveServicesApps]),
-    WantedApps=rpc:call(node(),db_app_spec,all_app_specs,[]),
+    WantedApps=rpc:call(sd:dbase_node(),db_app_spec,all_app_specs,[],2000),
     MissingApps=[XAppSpec||XAppSpec<-WantedApps,
 			   false==lists:member(XAppSpec,ActiveServicesApps)],
     case MissingApps of
 	[]->
 	    ok;
 	_-> 
-	      rpc:multicall(misc_oam:masters(),
-				 sys_log,ticket,
-				 [["MissingApps ",MissingApps],
-				  node(),?MODULE,?LINE])
+	    misc_log:msg(log,
+			 ["MissingApps ",MissingApps],
+			 node(),?MODULE,?LINE)
     end,
     MissingApps.
 
@@ -242,8 +238,8 @@ missing_apps()->
 %% --------------------------------------------------------------------    
 depricated_apps()->
     %1.check if appspecs is presente in some of the services Simple algorithm 
-    ActiveServicesApps=rpc:call(node(),db_sd,active_apps,[]),
-    WantedApps=rpc:call(node(),db_app_spec,all_app_specs,[]),
+    ActiveServicesApps=rpc:call(sd:dbase_node(),db_sd,active_apps,[]),
+    WantedApps=rpc:call(sd:dbase_node(),db_app_spec,all_app_specs,[]),
     DepricatedDoublets=[XAppSpec||XAppSpec<-ActiveServicesApps,
 		       false==lists:member(XAppSpec,WantedApps)],
     filter_doublets(DepricatedDoublets,[]).
@@ -264,65 +260,27 @@ filter_doublets([X|T],Acc)->
 %% Description: Starts vm and deploys services 
 %% Returns: ok |{error,Err}
 %% --------------------------------------------------------------------
-get_wanted_service_info(AppSpec)->
-    Result=case rpc:call(node(),db_app_spec,read,[AppSpec]) of
-	       [{AppSpec,AppVsn,Type,Directive,ServiceSpecs}]->
-		   get_wanted_service_info(AppSpec,AppVsn,Type,Directive,ServiceSpecs);
-	       [] ->
-		   {error,[eexists,AppSpec]};
-	       Reason ->
-		   {error,[Reason,AppSpec]}
-	   end,
-    Result.
-
-
-get_wanted_service_info(AppSpec,_AppVsn,_Type,Directive,ServiceSpecs)->
-    HostId=case lists:keyfind(host,1,Directive) of
-	       false->
-		   host_any;
-	       {host,XHost}->
-		   XHost
-	   end,
-    VmId=case lists:keyfind(vm_id,1,Directive) of
-	       false->
-		   vm_id_any;
-	       {vm_id,XVmId}->
-		   XVmId
-	   end,
-    Vm=case {HostId,VmId} of
-	   {host_any, vm_id_any}->
-	       vm_any;
-	   {HostId,VmId}->
-	       list_to_atom(VmId++"@"++HostId)
-       end,
-   % io:format("ServiceSpecs ~p~n",[ServicSpecs]),
-    
-    ServiceInfo=lists:append([rpc:call(node(),db_service_def,read,[ServiceSpec])||ServiceSpec<-ServiceSpecs]),
-    [{ServiceId,ServiceVsn,AppSpec,HostId,VmId,Vm}||{_ServiceSpec,ServiceId,ServiceVsn,_StartCmd,_GitPath}<-ServiceInfo].
 
 %% --------------------------------------------------------------------
 %% Function:create(ServiceId,Vsn,HostId,VmId)
 %% Description: Starts vm and deploys services 
 %% Returns: ok |{error,Err}
 %% --------------------------------------------------------------------
-
 read_app_spec(AppId)->
-    rpc:call(node(),db_app_spec,read,[AppId]).
+    rpc:call(sd:dbase_node(),db_app_spec,read,[AppId]).
 %% --------------------------------------------------------------------
 %% Function:create(ServiceId,Vsn,HostId,VmId)
 %% Description: Starts vm and deploys services 
 %% Returns: ok |{error,Err}
 %% --------------------------------------------------------------------
-
 read_app_specs()->
-    rpc:call(node(),db_app_spec,read_all,[]).
+    rpc:call(sd:dbase_node(),db_app_spec,read_all,[]).
     
 %% --------------------------------------------------------------------
 %% Function:create(ServiceId,Vsn,HostId,VmId)
 %% Description: Starts vm and deploys services 
 %% Returns: ok |{error,Err}
 %% --------------------------------------------------------------------
-
 load_app_specs(AppSpecDir,GitUser,GitPassWd)->
      %% Get initial configuration
     os:cmd("rm -rf "++AppSpecDir),
@@ -340,17 +298,15 @@ load_app_specs(AppSpecDir,GitUser,GitPassWd)->
 			[]->
 			   ok;
 		       Reason->
-			   rpc:multicall(misc_oam:masters(),
-					 sys_log,ticket,
-					 [[{error,Reason}],
-					  node(),?MODULE,?LINE]),
+			   misc_log:msg(log,
+					[{error,Reason}],
+					node(),?MODULE,?LINE),
 			   {error,Reason}
 		   end;
 	       {error,Reason} ->
-		   rpc:multicall(misc_oam:masters(),
-				 sys_log,ticket,
-				 [[{error,Reason}],
-				  node(),?MODULE,?LINE]),
+		   misc_log:msg(log,
+				[{error,Reason}],
+				node(),?MODULE,?LINE),
 		   {error,Reason}
 	   end, 
     Result.

@@ -141,7 +141,7 @@ heartbeat(Interval)->
 %% --------------------------------------------------------------------
 init(_Args) ->
 
-    %spawn(fun()->kick_scheduler(?ScheduleInterval) end),
+    spawn(fun()->kick_scheduler(?ScheduleInterval) end),
    
     misc_log:msg(log,
 		 ["Starting gen server =", ?MODULE],
@@ -326,32 +326,25 @@ code_change(_OldVsn, State, _Extra) ->
 %% Returns: non
 %% --------------------------------------------------------------------
 kick_scheduler(ScheduleInterval)->
-    rpc:multicall(misc_oam:masters(),
-		  sys_log,log,
-		  [[time(),"kick_scheduler"],
-		   node(),?MODULE,?LINE]),
-    timer:sleep(1),
-%    misc_oam:print("kick_scheduler ~p~n",[{time(),node(),?MODULE,?LINE}]),
+    misc_log:msg(log,
+		 [time(),"kick_scheduler"],
+		 node(),?MODULE,?LINE),
+  
     timer:sleep(1000),
     StatusMachines=rpc:call(node(),machine,status,[all],2*5000),
-    io:format("StatusMachines ~p~n",[StatusMachines]),
-    rpc:multicall(misc_oam:masters(),
-		  sys_log,log,
-		  [[time(),"StatusMachinesr =", StatusMachines],
-		   node(),?MODULE,?LINE],1000),
-    timer:sleep(1),
+    misc_log:msg(log,
+		 ["StatusMachines =",StatusMachines],
+		 node(),?MODULE,?LINE),
     rpc:call(node(),machine,update_status,[StatusMachines],5000),
     
     timer:sleep(ScheduleInterval),
     %% Check if lock is open so it's time for checking
 
-    Result=case rpc:call(node(),db_lock,is_open,[schedule,?LockInterval],2000) of
+    Result=case rpc:call(sd:dbase_node(),db_lock,is_open,[schedule,?LockInterval],2000) of
 	       false->
-	%	   misc_oam:print("Lock Closed ~p~n",[{time(),node(),?MODULE,?LINE}]),
 		   ActiveApps=rpc:call(node(),schedule,active,[],5*5000),
 		   {no_scheduling,[{active,ActiveApps}]};
 	       true->
-	%	   misc_oam:print("Lock Open  ~p~n",[{time(),node(),?MODULE,?LINE}]),
 		   ActiveApps=rpc:call(node(),schedule,active,[],5*5000),
 		   MissingResult=rpc:call(node(),schedule,missing,[],6*5000),
 		   DepricatedResult=rpc:call(node(),schedule,depricated,[],5*5000),
@@ -360,7 +353,4 @@ kick_scheduler(ScheduleInterval)->
     rpc:cast(node(),control,schedule,[ScheduleInterval,Result]).
 			       
 				   
-			   
-					   
-   
-    
+  
