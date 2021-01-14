@@ -27,7 +27,7 @@
 %% ====================================================================
 
 active()->
-     rpc:call(node(),db_sd,active_apps,[]).
+     rpc:call(sd:dbase_node(),db_sd,active_apps,[]).
 %% --------------------------------------------------------------------
 %% Function:create(ServiceId,Vsn,HostId,VmId)
 %% Description: Starts vm and deploys services 
@@ -37,56 +37,62 @@ missing()->
     MissingApps=deployment:missing_apps(),
     
     %% Start master nodes first and add 
-    MissingAppSpecsInfo=[{AppSpec,db_app_spec:read(AppSpec)}||AppSpec<-MissingApps],
+    MissingAppSpecsInfo=[{AppSpec,rpc:call(sd:dbase_node(),db_app_spec,read,[AppSpec],2000)}||AppSpec<-MissingApps],
  %   io:format("MissingAppSpecsInfo ~p~n",[MissingAppSpecsInfo]),
-    MissingMasters=[XAppSpec||
-		       {XAppSpec,[{_AppId,_AppVsn,Type,_Directives,_Services}]}<-MissingAppSpecsInfo,
-		       Type==master],
-    MissingWorkers=[XAppSpec||
-		       {XAppSpec,[{_AppId,_AppVsn,Type,_Directives,_Services}]}<-MissingAppSpecsInfo,
-		       Type==worker],
-    
-    %% Start masters first   
-    case MissingMasters of
+    MissingLog=[XAppSpec||{XAppSpec,[{_AppId,_AppVsn,Type,_Host,_VmId,_VmDir,_Cookie,_Services}]}<-MissingAppSpecsInfo,
+			  Type==log],
+    MissingDbase=[XAppSpec||{XAppSpec,[{_AppId,_AppVsn,Type,_Host,_VmId,_VmDir,_Cookie,_Services}]}<-MissingAppSpecsInfo,
+		       Type==dbase],
+    MissingControl=[XAppSpec||{XAppSpec,[{_AppId,_AppVsn,Type,_Host,_VmId,_VmDir,_Cookie,_Services}]}<-MissingAppSpecsInfo,
+			 Type==control],
+    MissingService=[XAppSpec||{XAppSpec,[{_AppId,_AppVsn,Type,_Host,_VmId,_VmDir,_Cookie,_Services}]}<-MissingAppSpecsInfo,
+			 Type==service],
+
+   %% Algorithm
+   %% 1. start missing type log
+    case MissingLog of
 	[]->
-	     %% Start workers
-	    case MissingWorkers of
-		[]->
-		    ok;
-		WorkerAppSpecs->
-		    rpc:multicall(misc_oam:masters(),
-				  sys_log,log,
-				  [["Start WorkerAppSpecs ",WorkerAppSpecs],node(),
-				   ?MODULE,?LINE]),
-		    rpc:multicall(misc_oam:masters(),
-				  sys_log,log,
-				  [["StartResult WorkerAppSpecs",[deployment:create_application(WorkerAppSpec)||
-								     WorkerAppSpec<-WorkerAppSpecs]],node(),
-				   ?MODULE,?LINE])
-	    end;
-	MasterAppSpecs->
-	     rpc:multicall(misc_oam:masters(),
-			   sys_log,log,
-			   [["Start Start MasterAppSpecs ",MasterAppSpecs],node(),
-			    ?MODULE,?LINE]),
-	    StartResult=[deployment:create_application(MasterAppSpec)||MasterAppSpec<-MasterAppSpecs],
+	    no_missing;
+	MissingLog->
+	    misc_log:msg(log,
+			 ["StartResult Missinglog ",[deployment:create_application(AppSpec)||
+							AppSpec<-MissingLog]],
+			 node(),?MODULE,?LINE)
+    end,
+   %% 2. start missing type dbase 
+    case MissingDbase of
+	[]->
+	    no_missing;
+	MissingDbase->
+	    misc_log:msg(log,
+			 ["StartResult MissingDbase ",[deployment:create_application(AppSpec)||
+							AppSpec<-MissingDbase]],
+			 node(),?MODULE,?LINE)
+    end,
+   %% 3. start missing type control 
+    case MissingControl of
+	[]->
+	    no_missing;
+	MissingControl->
+	    misc_log:msg(log,
+			 ["StartResult MissingControl ",[deployment:create_application(AppSpec)||
+							AppSpec<-MissingControl]],
+			 node(),?MODULE,?LINE)
+    end,
+   %% 4. start missing type service 
+    case MissingService of
+	[]->
+	    no_missing;
+	MissingService->
+	    misc_log:msg(log,
+			 ["StartResult MissingService ",[deployment:create_application(AppSpec)||
+							AppSpec<-MissingService]],
+			 node(),?MODULE,?LINE)
+    end,  
+   %% 5.
 
-	    rpc:multicall(misc_oam:masters(),
-			  sys_log,log,
-			  [["StartResult Masters",StartResult],node(),
-			   ?MODULE,?LINE]),
-
-	    misc_oam:print("StartResult ~p~n",[{StartResult,?MODULE,?LINE}]),
-	    timer:sleep(1000),
-	    
-	    %% Add dbase nodes
-	    {ok,BootHostId}=net:gethostname(),
-	    BootVmId="master",
-	    BootNode=list_to_atom(BootVmId++"@"++BootHostId),
-	    ok=add_node(MasterAppSpecs,BootNode)
-    end,    
-    
-    {MissingMasters,MissingWorkers}.
+    [{log,MissingLog},{dbase,MissingDbase},
+     {control,MissingControl},{service,MissingService}].
     
 add_node([],_)->
     ok;
