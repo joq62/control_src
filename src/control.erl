@@ -143,9 +143,9 @@ init(_Args) ->
 
     spawn(fun()->kick_scheduler(?ScheduleInterval) end),
    
-    misc_log:msg(log,
+    rpc:call(node(),misc_log,msg,[log,
 		 ["Starting gen server =", ?MODULE],
-		 node(),?MODULE,?LINE),
+		 node(),?MODULE,?LINE],2000),
     {ok, #state{}}.   
     
 %% --------------------------------------------------------------------
@@ -326,15 +326,15 @@ code_change(_OldVsn, State, _Extra) ->
 %% Returns: non
 %% --------------------------------------------------------------------
 kick_scheduler(ScheduleInterval)->
-    misc_log:msg(log,
-		 [time(),"kick_scheduler"],
-		 node(),?MODULE,?LINE),
-  
+    rpc:cast(node(),misc_log,msg,[log,
+				  [time(),"kick_scheduler"],
+				  node(),?MODULE,?LINE]),
+    
     timer:sleep(1000),
     StatusMachines=rpc:call(node(),machine,status,[all],2*5000),
-    misc_log:msg(log,
+     rpc:cast(node(),misc_log,msg,[log,
 		 ["StatusMachines =",StatusMachines],
-		 node(),?MODULE,?LINE),
+		 node(),?MODULE,?LINE]),
     rpc:call(node(),machine,update_status,[StatusMachines],5000),
     
     timer:sleep(ScheduleInterval),
@@ -348,7 +348,12 @@ kick_scheduler(ScheduleInterval)->
 		   ActiveApps=rpc:call(node(),schedule,active,[],5*5000),
 		   MissingResult=rpc:call(node(),schedule,missing,[],6*5000),
 		   DepricatedResult=rpc:call(node(),schedule,depricated,[],5*5000),
-		   {scheduled,[{active,ActiveApps},{missing,MissingResult},{depricated,DepricatedResult}]}
+		   {scheduled,[{active,ActiveApps},{missing,MissingResult},{depricated,DepricatedResult}]};
+	       Err ->
+		   rpc:cast(node(),misc_log,msg,[ticket,
+						 [{error,[Err]}],
+						 node(),?MODULE,?LINE])
+		       
 	   end,
     rpc:cast(node(),control,schedule,[ScheduleInterval,Result]).
 			       
